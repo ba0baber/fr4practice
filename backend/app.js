@@ -3,9 +3,22 @@ const { nanoid } = require('nanoid');
 const cors = require('cors'); 
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
+const bcrypt = require('bcrypt');
 
 const app = express();
 const port = 3000;
+
+async function hashPassword(password) {
+  const rounds = 10;
+  return bcrypt.hash(password, rounds);
+}
+
+async function verifyPassword(password, hash) {
+  return bcrypt.compare(password, hash);
+}
+
+
+let users = []; 
 
 let products = [
   {
@@ -161,79 +174,6 @@ function findProductOr404(id, res) {
   return product;
 }
 
-app.get("/api/products", (req, res) => {
-  res.json(products);
-});
-
-app.get("/api/products/:id", (req, res) => {
-  const id = req.params.id;
-  const product = findProductOr404(id, res);
-  if (!product) return;
-  res.json(product);
-});
-
-app.post("/api/products", (req, res) => {
-  const { name, category, description, price, stock, rating, image } = req.body;
-
-  if (!name || !category || !description || !price || !stock) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
-  const newProduct = {
-    id: nanoid(6),
-    name: name.trim(),
-    category: category.trim(),
-    description: description.trim(),
-    price: Number(price),
-    stock: Number(stock),
-    rating: rating ? Number(rating) : 0,
-    image: image || "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=500"
-  };
-
-  products.push(newProduct);
-  res.status(201).json(newProduct);
-});
-
-app.patch("/api/products/:id", (req, res) => {
-  const id = req.params.id;
-  const product = findProductOr404(id, res);
-  if (!product) return;
-
-  if (Object.keys(req.body).length === 0) {
-    return res.status(400).json({ error: "Nothing to update" });
-  }
-
-  const { name, category, description, price, stock, rating, image } = req.body;
-
-  if (name !== undefined) product.name = name.trim();
-  if (category !== undefined) product.category = category.trim();
-  if (description !== undefined) product.description = description.trim();
-  if (price !== undefined) product.price = Number(price);
-  if (stock !== undefined) product.stock = Number(stock);
-  if (rating !== undefined) product.rating = Number(rating);
-  if (image !== undefined) product.image = image;
-
-  res.json(product);
-});
-
-app.delete("/api/products/:id", (req, res) => {
-  const id = req.params.id;
-  const exists = products.some(p => p.id === id);
-  
-  if (!exists) return res.status(404).json({ error: "Product not found" });
-  
-  products = products.filter(p => p.id !== id);
-  res.status(204).send();
-});
-
-app.use((req, res) => {
-  res.status(404).json({ error: "Not found" });
-});
-
-app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ error: "Internal server error" });
-});
 
 /**
  * @swagger
@@ -306,6 +246,9 @@ app.use((err, req, res, next) => {
  *               items:
  *                 $ref: '#/components/schemas/Product'
  */
+app.get("/api/products", (req, res) => {
+  res.json(products);
+});
 
 /**
  * @swagger
@@ -330,6 +273,12 @@ app.use((err, req, res, next) => {
  *       404:
  *         description: Товар не найден
  */
+app.get("/api/products/:id", (req, res) => {
+  const id = req.params.id;
+  const product = findProductOr404(id, res);
+  if (!product) return;
+  res.json(product);
+});
 
 /**
  * @swagger
@@ -374,6 +323,27 @@ app.use((err, req, res, next) => {
  *       400:
  *         description: Ошибка валидации
  */
+app.post("/api/products", (req, res) => {
+  const { name, category, description, price, stock, rating, image } = req.body;
+
+  if (!name || !category || !description || !price || !stock) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const newProduct = {
+    id: nanoid(6),
+    name: name.trim(),
+    category: category.trim(),
+    description: description.trim(),
+    price: Number(price),
+    stock: Number(stock),
+    rating: rating ? Number(rating) : 0,
+    image: image || "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=500"
+  };
+
+  products.push(newProduct);
+  res.status(201).json(newProduct);
+});
 
 /**
  * @swagger
@@ -421,6 +391,27 @@ app.use((err, req, res, next) => {
  *       404:
  *         description: Товар не найден
  */
+app.patch("/api/products/:id", (req, res) => {
+  const id = req.params.id;
+  const product = findProductOr404(id, res);
+  if (!product) return;
+
+  if (Object.keys(req.body).length === 0) {
+    return res.status(400).json({ error: "Nothing to update" });
+  }
+
+  const { name, category, description, price, stock, rating, image } = req.body;
+
+  if (name !== undefined) product.name = name.trim();
+  if (category !== undefined) product.category = category.trim();
+  if (description !== undefined) product.description = description.trim();
+  if (price !== undefined) product.price = Number(price);
+  if (stock !== undefined) product.stock = Number(stock);
+  if (rating !== undefined) product.rating = Number(rating);
+  if (image !== undefined) product.image = image;
+
+  res.json(product);
+});
 
 /**
  * @swagger
@@ -441,6 +432,184 @@ app.use((err, req, res, next) => {
  *       404:
  *         description: Товар не найден
  */
+app.delete("/api/products/:id", (req, res) => {
+  const id = req.params.id;
+  const exists = products.some(p => p.id === id);
+  
+  if (!exists) return res.status(404).json({ error: "Product not found" });
+  
+  products = products.filter(p => p.id !== id);
+  res.status(204).send();
+});
+
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     User:
+ *       type: object
+ *       required:
+ *         - email
+ *         - first_name
+ *         - last_name
+ *         - password
+ *       properties:
+ *         id:
+ *           type: string
+ *         email:
+ *           type: string
+ *         first_name:
+ *           type: string
+ *         last_name:
+ *           type: string
+ *         password:
+ *           type: string
+ */
+
+/**
+ * @swagger
+ * tags:
+ *   name: Auth
+ *   description: Регистрация и вход
+ */
+
+/**
+ * @swagger
+ * /api/auth/register:
+ *   post:
+ *     summary: Регистрация нового пользователя
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - first_name
+ *               - last_name
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *               first_name:
+ *                 type: string
+ *               last_name:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Пользователь создан
+ *       400:
+ *         description: Ошибка валидации
+ */
+app.post("/api/auth/register", async (req, res) => {
+  const { email, first_name, last_name, password } = req.body;
+
+  if (!email || !first_name || !last_name || !password) {
+    return res.status(400).json({ error: "All fields are required" });
+  }
+
+  const existingUser = users.find(u => u.email === email);
+  if (existingUser) {
+    return res.status(400).json({ error: "Email already exists" });
+  }
+
+  const hashedPassword = await hashPassword(password);
+  
+  const newUser = {
+    id: nanoid(6),
+    email,
+    first_name,
+    last_name,
+    hashedPassword
+  };
+
+  users.push(newUser);
+  
+  res.status(201).json({
+    id: newUser.id,
+    email: newUser.email,
+    first_name: newUser.first_name,
+    last_name: newUser.last_name
+  });
+});
+
+/**
+ * @swagger
+ * /api/auth/login:
+ *   post:
+ *     summary: Вход в систему
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Успешный вход
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 user:
+ *                   type: object
+ *       401:
+ *         description: Неверные данные
+ */
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password required" });
+  }
+
+  const user = users.find(u => u.email === email);
+  if (!user) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const isValid = await verifyPassword(password, user.hashedPassword);
+  
+  if (isValid) {
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name
+      }
+    });
+  } else {
+    res.status(401).json({ error: "Invalid credentials" });
+  }
+});
+
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal server error" });
+});
 
 app.listen(port, () => {
   console.log(`Сервер запущен на http://localhost:${port}`);
