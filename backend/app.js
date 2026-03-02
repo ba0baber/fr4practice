@@ -1,6 +1,8 @@
 const express = require('express');
 const { nanoid } = require('nanoid');
-const cors = require('cors');
+const cors = require('cors'); 
+const swaggerJsdoc = require('swagger-jsdoc');
+const swaggerUi = require('swagger-ui-express');
 
 const app = express();
 const port = 3000;
@@ -108,6 +110,31 @@ let products = [
   }
 ];
 
+const swaggerOptions = {
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'Clothing Store API',
+      version: '1.0.0',
+      description: 'API для управления товарами интернет-магазина одежды',
+      contact: {
+        name: 'ba0baber',
+        url: 'https://github.com/ba0baber'
+      }
+    },
+    servers: [
+      {
+        url: `http://localhost:${port}`,
+        description: 'Локальный сервер'
+      }
+    ]
+  },
+  apis: ['./app.js'],
+};
+
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 app.use(express.json());
 app.use(cors({
   origin: "http://localhost:3001",
@@ -208,6 +235,214 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Product:
+ *       type: object
+ *       required:
+ *         - name
+ *         - category
+ *         - description
+ *         - price
+ *         - stock
+ *       properties:
+ *         id:
+ *           type: string
+ *           description: Уникальный ID товара
+ *         name:
+ *           type: string
+ *           description: Название товара
+ *         category:
+ *           type: string
+ *           description: Категория товара
+ *         description:
+ *           type: string
+ *           description: Описание товара
+ *         price:
+ *           type: number
+ *           description: Цена товара в рублях
+ *         stock:
+ *           type: integer
+ *           description: Количество на складе
+ *         rating:
+ *           type: number
+ *           description: Рейтинг товара (0-5)
+ *         image:
+ *           type: string
+ *           description: URL изображения товара
+ *       example:
+ *         id: "abc123"
+ *         name: "Тишка"
+ *         category: "Футболки"
+ *         description: "Хлопковая футболка прямого кроя"
+ *         price: 5500
+ *         stock: 25
+ *         rating: 4.5
+ *         image: "/images/tshort.jpeg"
+ */
+
+/**
+ * @swagger
+ * tags:
+ *   name: Products
+ *   description: Управление товарами
+ */
+
+/**
+ * @swagger
+ * /api/products:
+ *   get:
+ *     summary: Возвращает список всех товаров
+ *     tags: [Products]
+ *     responses:
+ *       200:
+ *         description: Список товаров
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Product'
+ */
+
+/**
+ * @swagger
+ * /api/products/{id}:
+ *   get:
+ *     summary: Получает товар по ID
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID товара
+ *     responses:
+ *       200:
+ *         description: Данные товара
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Product'
+ *       404:
+ *         description: Товар не найден
+ */
+
+/**
+ * @swagger
+ * /api/products:
+ *   post:
+ *     summary: Создает новый товар
+ *     tags: [Products]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - category
+ *               - description
+ *               - price
+ *               - stock
+ *             properties:
+ *               name:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               stock:
+ *                 type: integer
+ *               rating:
+ *                 type: number
+ *               image:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Товар успешно создан
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Product'
+ *       400:
+ *         description: Ошибка валидации
+ */
+
+/**
+ * @swagger
+ * /api/products/{id}:
+ *   patch:
+ *     summary: Обновляет товар
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID товара
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               stock:
+ *                 type: integer
+ *               rating:
+ *                 type: number
+ *               image:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Обновленный товар
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Product'
+ *       400:
+ *         description: Нет данных для обновления
+ *       404:
+ *         description: Товар не найден
+ */
+
+/**
+ * @swagger
+ * /api/products/{id}:
+ *   delete:
+ *     summary: Удаляет товар
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: ID товара
+ *     responses:
+ *       204:
+ *         description: Товар успешно удален
+ *       404:
+ *         description: Товар не найден
+ */
+
 app.listen(port, () => {
   console.log(`Сервер запущен на http://localhost:${port}`);
+  console.log(`Swagger документация: http://localhost:${port}/api-docs`);
 });
