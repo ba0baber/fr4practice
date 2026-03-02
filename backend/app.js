@@ -4,9 +4,17 @@ const cors = require('cors');
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = 3000;
+
+const JWT_ACCESS_SECRET = 'your_access_secret_key';
+const JWT_REFRESH_SECRET = 'your_refresh_secret_key';
+const ACCESS_EXPIRES_IN = '15m'; 
+const REFRESH_EXPIRES_IN = '7d'; 
+
+let refreshTokens = [];
 
 async function hashPassword(password) {
   const rounds = 10;
@@ -17,9 +25,32 @@ async function verifyPassword(password, hash) {
   return bcrypt.compare(password, hash);
 }
 
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+
+  const [scheme, token] = authHeader.split(' ');
+  
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ error: "Invalid token format" });
+  }
+
+  try {
+    const payload = jwt.verify(token, JWT_ACCESS_SECRET);
+    req.user = payload; 
+    next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: "Token expired" });
+    }
+    return res.status(401).json({ error: "Invalid token" });
+  }
+}
 
 let users = []; 
-
 let products = [
   {
     id: nanoid(6),
@@ -140,7 +171,16 @@ const swaggerOptions = {
         url: `http://localhost:${port}`,
         description: 'Локальный сервер'
       }
-    ]
+    ],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT'
+        }
+      }
+    }
   },
   apis: ['./app.js'],
 };
@@ -542,7 +582,7 @@ app.post("/api/auth/register", async (req, res) => {
  * @swagger
  * /api/auth/login:
  *   post:
- *     summary: Вход в систему
+ *     summary: Вход в систему (возвращает JWT токены)
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -566,8 +606,10 @@ app.post("/api/auth/register", async (req, res) => {
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
  *                 user:
  *                   type: object
  *       401:
@@ -587,9 +629,115 @@ app.post("/api/auth/login", async (req, res) => {
 
   const isValid = await verifyPassword(password, user.hashedPassword);
   
-  if (isValid) {
+  if (!isValid) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const accessToken = jwt.sign(
+    { 
+      userId: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name
+    },
+    JWT_ACCESS_SECRET,
+    { expiresIn: ACCESS_EXPIRES_IN }
+  );
+
+  const refreshToken = jwt.sign(
+    { userId: user.id },
+    JWT_REFRESH_SECRET,
+    { expiresIn: REFRESH_EXPIRES_IN }
+  );
+
+  refreshTokens.push({
+    token: refreshToken,
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  });
+
+  res.json({
+    accessToken,
+    refreshToken,
+    user: {
+      id: user.id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name
+    }
+  });
+});
+
+/**
+ * @swagger
+ * /api/auth/refresh:
+ *   post:
+ *     summary: Обновление access токена
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Новые токены
+ *       401:
+ *         description: Невалидный refresh token
+ */
+app.post("/api/auth/refresh", async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    return res.status(401).json({ error: "Refresh token required" });
+  }
+
+  const storedToken = refreshTokens.find(t => t.token === refreshToken);
+  if (!storedToken) {
+    return res.status(401).json({ error: "Invalid refresh token" });
+  }
+
+  try {
+    const payload = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+    
+    const user = users.find(u => u.id === payload.userId);
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    const newAccessToken = jwt.sign(
+      { 
+        userId: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name
+      },
+      JWT_ACCESS_SECRET,
+      { expiresIn: ACCESS_EXPIRES_IN }
+    );
+
+    const newRefreshToken = jwt.sign(
+      { userId: user.id },
+      JWT_REFRESH_SECRET,
+      { expiresIn: REFRESH_EXPIRES_IN }
+    );
+
+    refreshTokens = refreshTokens.filter(t => t.token !== refreshToken);
+    refreshTokens.push({
+      token: newRefreshToken,
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    });
+
     res.json({
-      success: true,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -597,9 +745,65 @@ app.post("/api/auth/login", async (req, res) => {
         last_name: user.last_name
       }
     });
-  } else {
-    res.status(401).json({ error: "Invalid credentials" });
+
+  } catch (err) {
+    refreshTokens = refreshTokens.filter(t => t.token !== refreshToken);
+    return res.status(401).json({ error: "Invalid refresh token" });
   }
+});
+
+/**
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Получить информацию о текущем пользователе
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Данные пользователя
+ *       401:
+ *         description: Не авторизован
+ */
+app.get("/api/auth/me", authMiddleware, (req, res) => {
+  res.json({
+    id: req.user.userId,
+    email: req.user.email,
+    first_name: req.user.first_name,
+    last_name: req.user.last_name
+  });
+});
+
+/**
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     summary: Выход из системы
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Успешный выход
+ */
+app.post("/api/auth/logout", (req, res) => {
+  const { refreshToken } = req.body;
+  
+  if (refreshToken) {
+    refreshTokens = refreshTokens.filter(t => t.token !== refreshToken);
+  }
+  
+  res.json({ success: true });
 });
 
 app.use((req, res) => {
