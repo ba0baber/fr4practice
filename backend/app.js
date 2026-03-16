@@ -5,7 +5,6 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-
 const app = express();
 const port = 3000;
 
@@ -14,7 +13,7 @@ const JWT_REFRESH_SECRET = 'your_refresh_secret_key';
 const ACCESS_EXPIRES_IN = '15m'; 
 const REFRESH_EXPIRES_IN = '7d'; 
 
-let refreshTokens = [];
+let refreshTokens = new Set();
 
 async function hashPassword(password) {
   const rounds = 10;
@@ -23,6 +22,27 @@ async function hashPassword(password) {
 
 async function verifyPassword(password, hash) {
   return bcrypt.compare(password, hash);
+}
+
+function generateAccessToken(user) {
+  return jwt.sign(
+    { 
+      userId: user.id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name
+    },
+    JWT_ACCESS_SECRET,
+    { expiresIn: ACCESS_EXPIRES_IN }
+  );
+}
+
+function generateRefreshToken(user) {
+  return jwt.sign(
+    { userId: user.id },
+    JWT_REFRESH_SECRET,
+    { expiresIn: REFRESH_EXPIRES_IN }
+  );
 }
 
 function authMiddleware(req, res, next) {
@@ -482,7 +502,6 @@ app.delete("/api/products/:id", (req, res) => {
   res.status(204).send();
 });
 
-
 /**
  * @swagger
  * components:
@@ -633,28 +652,10 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 
-  const accessToken = jwt.sign(
-    { 
-      userId: user.id,
-      email: user.email,
-      firstName: user.first_name,
-      lastName: user.last_name
-    },
-    JWT_ACCESS_SECRET,
-    { expiresIn: ACCESS_EXPIRES_IN }
-  );
+  const accessToken = generateAccessToken(user);
+  const refreshToken = generateRefreshToken(user);
 
-  const refreshToken = jwt.sign(
-    { userId: user.id },
-    JWT_REFRESH_SECRET,
-    { expiresIn: REFRESH_EXPIRES_IN }
-  );
-
-  refreshTokens.push({
-    token: refreshToken,
-    userId: user.id,
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-  });
+  refreshTokens.add(refreshToken);
 
   res.json({
     accessToken,
@@ -672,7 +673,7 @@ app.post("/api/auth/login", async (req, res) => {
  * @swagger
  * /api/auth/refresh:
  *   post:
- *     summary: Обновление access токена
+ *     summary: Обновление токенов
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -688,6 +689,15 @@ app.post("/api/auth/login", async (req, res) => {
  *     responses:
  *       200:
  *         description: Новые токены
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
  *       401:
  *         description: Невалидный refresh token
  */
@@ -698,8 +708,7 @@ app.post("/api/auth/refresh", async (req, res) => {
     return res.status(401).json({ error: "Refresh token required" });
   }
 
-  const storedToken = refreshTokens.find(t => t.token === refreshToken);
-  if (!storedToken) {
+  if (!refreshTokens.has(refreshToken)) {
     return res.status(401).json({ error: "Invalid refresh token" });
   }
 
@@ -710,45 +719,21 @@ app.post("/api/auth/refresh", async (req, res) => {
     if (!user) {
       return res.status(401).json({ error: "User not found" });
     }
-
-    const newAccessToken = jwt.sign(
-      { 
-        userId: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name
-      },
-      JWT_ACCESS_SECRET,
-      { expiresIn: ACCESS_EXPIRES_IN }
-    );
-
-    const newRefreshToken = jwt.sign(
-      { userId: user.id },
-      JWT_REFRESH_SECRET,
-      { expiresIn: REFRESH_EXPIRES_IN }
-    );
-
-    refreshTokens = refreshTokens.filter(t => t.token !== refreshToken);
-    refreshTokens.push({
-      token: newRefreshToken,
-      userId: user.id,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    });
+    refreshTokens.delete(refreshToken);
+    
+    const newAccessToken = generateAccessToken(user);
+    const newRefreshToken = generateRefreshToken(user);
+    
+    refreshTokens.add(newRefreshToken);
 
     res.json({
       accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name
-      }
+      refreshToken: newRefreshToken
     });
 
   } catch (err) {
-    refreshTokens = refreshTokens.filter(t => t.token !== refreshToken);
-    return res.status(401).json({ error: "Invalid refresh token" });
+    refreshTokens.delete(refreshToken);
+    return res.status(401).json({ error: "Invalid or expired refresh token" });
   }
 });
 
@@ -800,7 +785,7 @@ app.post("/api/auth/logout", (req, res) => {
   const { refreshToken } = req.body;
   
   if (refreshToken) {
-    refreshTokens = refreshTokens.filter(t => t.token !== refreshToken);
+    refreshTokens.delete(refreshToken);
   }
   
   res.json({ success: true });
