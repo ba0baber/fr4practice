@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from 'react-router-dom';
 import "./ProductsPage.scss";
 
 import ProductList from "../../components/ProductList";
 import ProductModal from "../../components/ProductModal";
-import { api } from "../../api";
+import { productsApi, authApi } from "../../api";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([]);
@@ -11,22 +12,45 @@ export default function ProductsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [editingProduct, setEditingProduct] = useState(null);
+  const [user, setUser] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadProducts();
+    loadUser();
   }, []);
+
+  const loadUser = async () => {
+    try {
+      const response = await authApi.getMe();
+      setUser(response.data);
+    } catch (err) {
+      console.error('Failed to load user');
+    }
+  };
 
   const loadProducts = async () => {
     try {
       setLoading(true);
-      const data = await api.getProducts();
-      setProducts(data);
+      const response = await productsApi.getAll();
+      setProducts(response.data);
     } catch (err) {
       console.error(err);
       alert("Ошибка загрузки товаров");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogout = () => {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (refreshToken) {
+      authApi.logout(refreshToken);
+    }
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    navigate('/login');
   };
 
   const openCreate = () => {
@@ -51,7 +75,7 @@ export default function ProductsPage() {
     if (!ok) return;
 
     try {
-      await api.deleteProduct(id);
+      await productsApi.delete(id);
       setProducts((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       console.error(err);
@@ -62,12 +86,12 @@ export default function ProductsPage() {
   const handleSubmitModal = async (payload) => {
     try {
       if (modalMode === "create") {
-        const newProduct = await api.createProduct(payload);
-        setProducts((prev) => [...prev, newProduct]);
+        const response = await productsApi.create(payload);
+        setProducts((prev) => [...prev, response.data]);
       } else {
-        const updatedProduct = await api.updateProduct(payload.id, payload);
+        const response = await productsApi.update(payload.id, payload);
         setProducts((prev) =>
-          prev.map((p) => (p.id === payload.id ? updatedProduct : p))
+          prev.map((p) => (p.id === payload.id ? response.data : p))
         );
       }
       closeModal();
@@ -82,7 +106,16 @@ export default function ProductsPage() {
       <header className="header">
         <div className="header__inner">
           <div className="brand">Clothing Store</div>
-          <div className="header__right">React + Express</div>
+          <div className="header__right">
+            {user && (
+              <div className="user-info">
+                <span>{user.first_name} {user.last_name}</span>
+                <button className="btn btn--logout" onClick={handleLogout}>
+                  Выйти
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
