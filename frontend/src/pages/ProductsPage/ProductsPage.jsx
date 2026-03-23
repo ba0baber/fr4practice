@@ -24,8 +24,13 @@ export default function ProductsPage() {
     try {
       const response = await authApi.getMe();
       setUser(response.data);
+      localStorage.setItem('user', JSON.stringify(response.data));
     } catch (err) {
       console.error('Failed to load user');
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        setUser(JSON.parse(userData));
+      }
     }
   };
 
@@ -47,9 +52,7 @@ export default function ProductsPage() {
     if (refreshToken) {
       authApi.logout(refreshToken);
     }
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    localStorage.clear();
     navigate('/login');
   };
 
@@ -109,8 +112,21 @@ export default function ProductsPage() {
           <div className="header__right">
             {user && (
               <div className="user-info">
-                <span>{user.first_name} {user.last_name}</span>
-                <button className="btn btn--logout" onClick={handleLogout}>
+                <span className="user-name">{user.first_name} {user.last_name}</span>
+                <span className={`user-role role-${user.role}`}>
+                  {user.role === 'admin' && '👑 Администратор'}
+                  {user.role === 'seller' && '🛍️ Продавец'}
+                  {user.role === 'user' && '👤 Пользователь'}
+                </span>
+                {user.role === 'admin' && (
+                  <button 
+                    className="admin-btn"
+                    onClick={() => navigate('/admin/users')}
+                  >
+                    👥 Управление пользователями
+                  </button>
+                )}
+                <button className="logout-btn" onClick={handleLogout}>
                   Выйти
                 </button>
               </div>
@@ -123,9 +139,12 @@ export default function ProductsPage() {
         <div className="container">
           <div className="toolbar">
             <h1 className="title">Товары</h1>
-            <button className="btn btn--primary" onClick={openCreate}>
-              + Добавить товар
-            </button>
+            {/* Только продавец и админ могут добавлять товары */}
+            {(user?.role === 'seller' || user?.role === 'admin') && (
+              <button className="btn btn--primary" onClick={openCreate}>
+                + Добавить товар
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -135,6 +154,7 @@ export default function ProductsPage() {
               products={products}
               onEdit={openEdit}
               onDelete={handleDelete}
+              userRole={user?.role}
             />
           )}
         </div>

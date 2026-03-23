@@ -5,13 +5,14 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+
 const app = express();
 const port = 3000;
 
 const JWT_ACCESS_SECRET = 'your_access_secret_key';
 const JWT_REFRESH_SECRET = 'your_refresh_secret_key';
-const ACCESS_EXPIRES_IN = '15m'; 
-const REFRESH_EXPIRES_IN = '7d'; 
+const ACCESS_EXPIRES_IN = '2h'; 
+const REFRESH_EXPIRES_IN = '15d'; 
 
 let refreshTokens = new Set();
 
@@ -22,27 +23,6 @@ async function hashPassword(password) {
 
 async function verifyPassword(password, hash) {
   return bcrypt.compare(password, hash);
-}
-
-function generateAccessToken(user) {
-  return jwt.sign(
-    { 
-      userId: user.id,
-      email: user.email,
-      first_name: user.first_name,
-      last_name: user.last_name
-    },
-    JWT_ACCESS_SECRET,
-    { expiresIn: ACCESS_EXPIRES_IN }
-  );
-}
-
-function generateRefreshToken(user) {
-  return jwt.sign(
-    { userId: user.id },
-    JWT_REFRESH_SECRET,
-    { expiresIn: REFRESH_EXPIRES_IN }
-  );
 }
 
 function authMiddleware(req, res, next) {
@@ -70,7 +50,56 @@ function authMiddleware(req, res, next) {
   }
 }
 
-let users = []; 
+function roleMiddleware(allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userRole = req.user.role;
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: "Forbidden: insufficient permissions" });
+    }
+
+    next();
+  };
+}
+
+// Функции для генерации токенов
+function generateAccessToken(user) {
+  return jwt.sign(
+    { 
+      userId: user.id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      role: user.role
+    },
+    JWT_ACCESS_SECRET,
+    { expiresIn: ACCESS_EXPIRES_IN }
+  );
+}
+
+function generateRefreshToken(user) {
+  return jwt.sign(
+    { userId: user.id, role: user.role },
+    JWT_REFRESH_SECRET,
+    { expiresIn: REFRESH_EXPIRES_IN }
+  );
+}
+
+
+let users = [
+  {
+    id: "admin1",
+    email: "admin@mail.com",
+    first_name: "Admin",
+    last_name: "Admin",
+    role: "admin",
+    hashedPassword: "$2b$10$4FOAHpqBRhQ2qCbCz/qq2eWKTPemgGdAgP7d0/XcdzBDPEk7ry9/K" 
+  }
+]; 
+
 let products = [
   {
     id: nanoid(6),
@@ -178,9 +207,9 @@ const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Clothing Store API',
+      title: 'Clothing Store API with RBAC',
       version: '1.0.0',
-      description: 'API для управления товарами интернет-магазина одежды',
+      description: 'API интернет-магазина с системой ролей',
       contact: {
         name: 'ba0baber',
         url: 'https://github.com/ba0baber'
@@ -211,7 +240,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use(express.json());
 app.use(cors({
   origin: "http://localhost:3001",
-  methods: ["GET", "POST", "PATCH", "DELETE"],
+  methods: ["GET", "POST", "PATCH", "DELETE", "PUT"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
@@ -234,273 +263,15 @@ function findProductOr404(id, res) {
   return product;
 }
 
-
-/**
- * @swagger
- * components:
- *   schemas:
- *     Product:
- *       type: object
- *       required:
- *         - name
- *         - category
- *         - description
- *         - price
- *         - stock
- *       properties:
- *         id:
- *           type: string
- *           description: Уникальный ID товара
- *         name:
- *           type: string
- *           description: Название товара
- *         category:
- *           type: string
- *           description: Категория товара
- *         description:
- *           type: string
- *           description: Описание товара
- *         price:
- *           type: number
- *           description: Цена товара в рублях
- *         stock:
- *           type: integer
- *           description: Количество на складе
- *         rating:
- *           type: number
- *           description: Рейтинг товара (0-5)
- *         image:
- *           type: string
- *           description: URL изображения товара
- *       example:
- *         id: "abc123"
- *         name: "Тишка"
- *         category: "Футболки"
- *         description: "Хлопковая футболка прямого кроя"
- *         price: 5500
- *         stock: 25
- *         rating: 4.5
- *         image: "/images/tshort.jpeg"
- */
-
-/**
- * @swagger
- * tags:
- *   name: Products
- *   description: Управление товарами
- */
-
-/**
- * @swagger
- * /api/products:
- *   get:
- *     summary: Возвращает список всех товаров
- *     tags: [Products]
- *     responses:
- *       200:
- *         description: Список товаров
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Product'
- */
-app.get("/api/products", (req, res) => {
-  res.json(products);
-});
-
-/**
- * @swagger
- * /api/products/{id}:
- *   get:
- *     summary: Получает товар по ID
- *     tags: [Products]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: string
- *         required: true
- *         description: ID товара
- *     responses:
- *       200:
- *         description: Данные товара
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Product'
- *       404:
- *         description: Товар не найден
- */
-app.get("/api/products/:id", (req, res) => {
-  const id = req.params.id;
-  const product = findProductOr404(id, res);
-  if (!product) return;
-  res.json(product);
-});
-
-/**
- * @swagger
- * /api/products:
- *   post:
- *     summary: Создает новый товар
- *     tags: [Products]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - name
- *               - category
- *               - description
- *               - price
- *               - stock
- *             properties:
- *               name:
- *                 type: string
- *               category:
- *                 type: string
- *               description:
- *                 type: string
- *               price:
- *                 type: number
- *               stock:
- *                 type: integer
- *               rating:
- *                 type: number
- *               image:
- *                 type: string
- *     responses:
- *       201:
- *         description: Товар успешно создан
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Product'
- *       400:
- *         description: Ошибка валидации
- */
-app.post("/api/products", (req, res) => {
-  const { name, category, description, price, stock, rating, image } = req.body;
-
-  if (!name || !category || !description || !price || !stock) {
-    return res.status(400).json({ error: "Missing required fields" });
+function findUserOr404(id, res) {
+  const user = users.find(u => u.id === id);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return null;
   }
+  return user;
+}
 
-  const newProduct = {
-    id: nanoid(6),
-    name: name.trim(),
-    category: category.trim(),
-    description: description.trim(),
-    price: Number(price),
-    stock: Number(stock),
-    rating: rating ? Number(rating) : 0,
-    image: image || "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=500"
-  };
-
-  products.push(newProduct);
-  res.status(201).json(newProduct);
-});
-
-/**
- * @swagger
- * /api/products/{id}:
- *   patch:
- *     summary: Обновляет товар
- *     tags: [Products]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: string
- *         required: true
- *         description: ID товара
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *               category:
- *                 type: string
- *               description:
- *                 type: string
- *               price:
- *                 type: number
- *               stock:
- *                 type: integer
- *               rating:
- *                 type: number
- *               image:
- *                 type: string
- *     responses:
- *       200:
- *         description: Обновленный товар
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Product'
- *       400:
- *         description: Нет данных для обновления
- *       404:
- *         description: Товар не найден
- */
-app.patch("/api/products/:id", (req, res) => {
-  const id = req.params.id;
-  const product = findProductOr404(id, res);
-  if (!product) return;
-
-  if (Object.keys(req.body).length === 0) {
-    return res.status(400).json({ error: "Nothing to update" });
-  }
-
-  const { name, category, description, price, stock, rating, image } = req.body;
-
-  if (name !== undefined) product.name = name.trim();
-  if (category !== undefined) product.category = category.trim();
-  if (description !== undefined) product.description = description.trim();
-  if (price !== undefined) product.price = Number(price);
-  if (stock !== undefined) product.stock = Number(stock);
-  if (rating !== undefined) product.rating = Number(rating);
-  if (image !== undefined) product.image = image;
-
-  res.json(product);
-});
-
-/**
- * @swagger
- * /api/products/{id}:
- *   delete:
- *     summary: Удаляет товар
- *     tags: [Products]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: string
- *         required: true
- *         description: ID товара
- *     responses:
- *       204:
- *         description: Товар успешно удален
- *       404:
- *         description: Товар не найден
- */
-app.delete("/api/products/:id", (req, res) => {
-  const id = req.params.id;
-  const exists = products.some(p => p.id === id);
-  
-  if (!exists) return res.status(404).json({ error: "Product not found" });
-  
-  products = products.filter(p => p.id !== id);
-  res.status(204).send();
-});
 
 /**
  * @swagger
@@ -522,6 +293,10 @@ app.delete("/api/products/:id", (req, res) => {
  *           type: string
  *         last_name:
  *           type: string
+ *         role:
+ *           type: string
+ *           enum: [user, seller, admin]
+ *           default: user
  *         password:
  *           type: string
  */
@@ -530,14 +305,14 @@ app.delete("/api/products/:id", (req, res) => {
  * @swagger
  * tags:
  *   name: Auth
- *   description: Регистрация и вход
+ *   description: Регистрация и вход (доступно всем)
  */
 
 /**
  * @swagger
  * /api/auth/register:
  *   post:
- *     summary: Регистрация нового пользователя
+ *     summary: Регистрация нового пользователя (роль по умолчанию - user)
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -584,6 +359,7 @@ app.post("/api/auth/register", async (req, res) => {
     email,
     first_name,
     last_name,
+    role: "user",
     hashedPassword
   };
 
@@ -593,7 +369,8 @@ app.post("/api/auth/register", async (req, res) => {
     id: newUser.id,
     email: newUser.email,
     first_name: newUser.first_name,
-    last_name: newUser.last_name
+    last_name: newUser.last_name,
+    role: newUser.role
   });
 });
 
@@ -601,7 +378,7 @@ app.post("/api/auth/register", async (req, res) => {
  * @swagger
  * /api/auth/login:
  *   post:
- *     summary: Вход в систему (возвращает JWT токены)
+ *     summary: Вход в систему
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -664,7 +441,8 @@ app.post("/api/auth/login", async (req, res) => {
       id: user.id,
       email: user.email,
       first_name: user.first_name,
-      last_name: user.last_name
+      last_name: user.last_name,
+      role: user.role
     }
   });
 });
@@ -689,15 +467,6 @@ app.post("/api/auth/login", async (req, res) => {
  *     responses:
  *       200:
  *         description: Новые токены
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 accessToken:
- *                   type: string
- *                 refreshToken:
- *                   type: string
  *       401:
  *         description: Невалидный refresh token
  */
@@ -719,6 +488,7 @@ app.post("/api/auth/refresh", async (req, res) => {
     if (!user) {
       return res.status(401).json({ error: "User not found" });
     }
+
     refreshTokens.delete(refreshToken);
     
     const newAccessToken = generateAccessToken(user);
@@ -756,7 +526,8 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
     id: req.user.userId,
     email: req.user.email,
     first_name: req.user.first_name,
-    last_name: req.user.last_name
+    last_name: req.user.last_name,
+    role: req.user.role
   });
 });
 
@@ -789,6 +560,385 @@ app.post("/api/auth/logout", (req, res) => {
   }
   
   res.json({ success: true });
+});
+
+
+/**
+ * @swagger
+ * tags:
+ *   name: Users
+ *   description: Управление пользователями (только admin)
+ */
+
+/**
+ * @swagger
+ * /api/users:
+ *   get:
+ *     summary: Получить список всех пользователей
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Список пользователей
+ *       403:
+ *         description: Недостаточно прав
+ */
+app.get("/api/users", authMiddleware, roleMiddleware(["admin"]), (req, res) => {
+  const safeUsers = users.map(u => ({
+    id: u.id,
+    email: u.email,
+    first_name: u.first_name,
+    last_name: u.last_name,
+    role: u.role
+  }));
+  res.json(safeUsers);
+});
+
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   get:
+ *     summary: Получить пользователя по ID
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Данные пользователя
+ *       403:
+ *         description: Недостаточно прав
+ *       404:
+ *         description: Пользователь не найден
+ */
+app.get("/api/users/:id", authMiddleware, roleMiddleware(["admin"]), (req, res) => {
+  const id = req.params.id;
+  const user = users.find(u => u.id === id);
+  
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  res.json({
+    id: user.id,
+    email: user.email,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    role: user.role
+  });
+});
+
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   put:
+ *     summary: Обновить информацию пользователя
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               first_name:
+ *                 type: string
+ *               last_name:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *                 enum: [user, seller, admin]
+ *     responses:
+ *       200:
+ *         description: Пользователь обновлен
+ *       403:
+ *         description: Недостаточно прав
+ *       404:
+ *         description: Пользователь не найден
+ */
+app.put("/api/users/:id", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
+  const id = req.params.id;
+  const user = users.find(u => u.id === id);
+  
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const { email, first_name, last_name, role } = req.body;
+
+  if (email) user.email = email;
+  if (first_name) user.first_name = first_name;
+  if (last_name) user.last_name = last_name;
+  if (role) user.role = role;
+
+  res.json({
+    id: user.id,
+    email: user.email,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    role: user.role
+  });
+});
+
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   delete:
+ *     summary: Заблокировать пользователя (удалить)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Пользователь удален
+ *       403:
+ *         description: Недостаточно прав
+ *       404:
+ *         description: Пользователь не найден
+ */
+app.delete("/api/users/:id", authMiddleware, roleMiddleware(["admin"]), (req, res) => {
+  const id = req.params.id;
+  const index = users.findIndex(u => u.id === id);
+  
+  if (index === -1) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  if (users[index].id === req.user.userId) {
+    return res.status(400).json({ error: "Cannot delete yourself" });
+  }
+
+  users.splice(index, 1);
+  res.status(204).send();
+});
+
+
+/**
+ * @swagger
+ * tags:
+ *   name: Products
+ *   description: Управление товарами (разные роли имеют разный доступ)
+ */
+
+/**
+ * @swagger
+ * /api/products:
+ *   get:
+ *     summary: Получить список всех товаров (доступно всем аутентифицированным)
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Список товаров
+ */
+app.get("/api/products", authMiddleware, (req, res) => {
+  res.json(products);
+});
+
+/**
+ * @swagger
+ * /api/products/{id}:
+ *   get:
+ *     summary: Получить товар по ID (доступно всем аутентифицированным)
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Данные товара
+ *       404:
+ *         description: Товар не найден
+ */
+app.get("/api/products/:id", authMiddleware, (req, res) => {
+  const id = req.params.id;
+  const product = findProductOr404(id, res);
+  if (!product) return;
+  res.json(product);
+});
+
+/**
+ * @swagger
+ * /api/products:
+ *   post:
+ *     summary: Создать новый товар (только seller и admin)
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - category
+ *               - description
+ *               - price
+ *               - stock
+ *             properties:
+ *               name:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               stock:
+ *                 type: integer
+ *               rating:
+ *                 type: number
+ *               image:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Товар создан
+ *       403:
+ *         description: Недостаточно прав
+ */
+app.post("/api/products", authMiddleware, roleMiddleware(["seller", "admin"]), (req, res) => {
+  const { name, category, description, price, stock, rating, image } = req.body;
+
+  if (!name || !category || !description || !price || !stock) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const newProduct = {
+    id: nanoid(6),
+    name: name.trim(),
+    category: category.trim(),
+    description: description.trim(),
+    price: Number(price),
+    stock: Number(stock),
+    rating: rating ? Number(rating) : 0,
+    image: image || "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=500"
+  };
+
+  products.push(newProduct);
+  res.status(201).json(newProduct);
+});
+
+/**
+ * @swagger
+ * /api/products/{id}:
+ *   put:
+ *     summary: Обновить товар (только seller и admin)
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               stock:
+ *                 type: integer
+ *               rating:
+ *                 type: number
+ *               image:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Товар обновлен
+ *       403:
+ *         description: Недостаточно прав
+ *       404:
+ *         description: Товар не найден
+ */
+app.put("/api/products/:id", authMiddleware, roleMiddleware(["seller", "admin"]), (req, res) => {
+  const id = req.params.id;
+  const product = findProductOr404(id, res);
+  if (!product) return;
+
+  const { name, category, description, price, stock, rating, image } = req.body;
+
+  if (name !== undefined) product.name = name.trim();
+  if (category !== undefined) product.category = category.trim();
+  if (description !== undefined) product.description = description.trim();
+  if (price !== undefined) product.price = Number(price);
+  if (stock !== undefined) product.stock = Number(stock);
+  if (rating !== undefined) product.rating = Number(rating);
+  if (image !== undefined) product.image = image;
+
+  res.json(product);
+});
+
+/**
+ * @swagger
+ * /api/products/{id}:
+ *   delete:
+ *     summary: Удалить товар (только admin)
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Товар удален
+ *       403:
+ *         description: Недостаточно прав
+ *       404:
+ *         description: Товар не найден
+ */
+app.delete("/api/products/:id", authMiddleware, roleMiddleware(["admin"]), (req, res) => {
+  const id = req.params.id;
+  const exists = products.some(p => p.id === id);
+  
+  if (!exists) return res.status(404).json({ error: "Product not found" });
+  
+  products = products.filter(p => p.id !== id);
+  res.status(204).send();
 });
 
 app.use((req, res) => {

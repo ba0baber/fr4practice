@@ -1,7 +1,10 @@
 import React from "react";
 import "./ProductCard.scss";
 
-export default function ProductCard({ product, onEdit, onDelete }) {
+export default function ProductCard({ product, onEdit, onDelete, userRole }) {
+  const canEdit = userRole === 'seller' || userRole === 'admin';
+  const canDelete = userRole === 'admin';
+
   return (
     <div className="product-card">
       {product.image && (
@@ -29,18 +32,22 @@ export default function ProductCard({ product, onEdit, onDelete }) {
         )}
         
         <div className="product-card__actions">
-          <button 
-            className="btn" 
-            onClick={() => onEdit(product)}
-          >
-            Редактировать
-          </button>
-          <button 
-            className="btn btn--danger" 
-            onClick={() => onDelete(product.id)}
-          >
-            Удалить
-          </button>
+          {canEdit && (
+            <button 
+              className="btn" 
+              onClick={() => onEdit(product)}
+            >
+              ✏️ Редактировать
+            </button>
+          )}
+          {canDelete && (
+            <button 
+              className="btn btn--danger" 
+              onClick={() => onDelete(product.id)}
+            >
+              🗑️ Удалить
+            </button>
+          )}
         </div>
       </div>
     </div>

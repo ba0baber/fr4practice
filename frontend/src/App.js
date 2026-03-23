@@ -4,11 +4,22 @@ import ProductsPage from './pages/ProductsPage/ProductsPage';
 import LoginPage from './pages/LoginPage/LoginPage';
 import RegisterPage from './pages/RegisterPage/RegisterPage';
 import ProductDetailPage from './pages/ProductDetailPage/ProductDetailPage';
+import AdminUsersPage from './pages/AdminUsersPage/AdminUsersPage';
 import './App.css';
 
-const PrivateRoute = ({ children }) => {
+const PrivateRoute = ({ children, allowedRoles = ['user', 'seller', 'admin'] }) => {
   const token = localStorage.getItem('accessToken');
-  return token ? children : <Navigate to="/login" />;
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  
+  if (!token) {
+    return <Navigate to="/login" />;
+  }
+  
+  if (!allowedRoles.includes(user.role)) {
+    return <Navigate to="/" />;
+  }
+  
+  return children;
 };
 
 function App() {
@@ -25,6 +36,11 @@ function App() {
         <Route path="/product/:id" element={
           <PrivateRoute>
             <ProductDetailPage />
+          </PrivateRoute>
+        } />
+        <Route path="/admin/users" element={
+          <PrivateRoute allowedRoles={['admin']}>
+            <AdminUsersPage />
           </PrivateRoute>
         } />
       </Routes>

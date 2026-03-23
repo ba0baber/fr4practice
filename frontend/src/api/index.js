@@ -30,12 +30,10 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
       
       const refreshToken = localStorage.getItem('refreshToken');
-      const accessToken = localStorage.getItem('accessToken');
       
-      if (!refreshToken || !accessToken) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        window.location = '/login';
+      if (!refreshToken) {
+        localStorage.clear();
+        window.location.href = '/login';
         return Promise.reject(error);
       }
       
@@ -44,18 +42,18 @@ apiClient.interceptors.response.use(
           refreshToken
         });
         
-        const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data;
+        const { accessToken, refreshToken: newRefreshToken } = response.data;
         
-        localStorage.setItem('accessToken', newAccessToken);
+        localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('refreshToken', newRefreshToken);
         
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return apiClient(originalRequest);
         
       } catch (refreshError) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        window.location = '/login';
+        console.error('Refresh failed:', refreshError);
+        localStorage.clear();
+        window.location.href = '/login';
         return Promise.reject(refreshError);
       }
     }
@@ -68,16 +66,29 @@ export const productsApi = {
   getAll: () => apiClient.get("/products"),
   getById: (id) => apiClient.get(`/products/${id}`),
   create: (data) => apiClient.post("/products", data),
-  update: (id, data) => apiClient.patch(`/products/${id}`, data),
+  update: (id, data) => apiClient.put(`/products/${id}`, data),
   delete: (id) => apiClient.delete(`/products/${id}`)
 };
 
 export const authApi = {
   register: (data) => axios.post(`${API_URL}/auth/register`, data),
-  login: (data) => axios.post(`${API_URL}/auth/login`, data),
+  login: async (data) => {
+    const response = await axios.post(`${API_URL}/auth/login`, data);
+    if (response.data.user) {
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+    }
+    return response;
+  },
   refresh: (refreshToken) => axios.post(`${API_URL}/auth/refresh`, { refreshToken }),
   getMe: () => apiClient.get("/auth/me"),
   logout: (refreshToken) => axios.post(`${API_URL}/auth/logout`, { refreshToken })
+};
+
+export const usersApi = {
+  getAll: () => apiClient.get("/users"),
+  getById: (id) => apiClient.get(`/users/${id}`),
+  update: (id, data) => apiClient.put(`/users/${id}`, data),
+  delete: (id) => apiClient.delete(`/users/${id}`)
 };
 
 export default apiClient;
